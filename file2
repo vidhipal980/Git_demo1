@@ -1,0 +1,111 @@
+pipeline {
+    agent any
+    
+      tools {
+   maven 'maven'
+    }
+	
+	environment {
+			def tag = ''
+	}
+stages {
+    
+    stage ('SCM_Checkout'){
+		steps {
+		 
+		   git branch: 'testable', credentialsId: 'cats_BFF-Backend', url: 'https://CATS4U@dev.azure.com/CATS4U/CATS_ACL/_git/ACL-Core'
+		 
+		  script {
+						tag = sh (script: "git log -n 1 --pretty=format:'%H'", returnStdout: true)
+					}
+		    
+		}
+		  post {
+			failure {
+				emailext attachLog: true, body: '''Hi Team,Please find the status of stage " SCM Checkout" of project "$JOB_NAME" = $BUILD_STATUS ''', compressLog: false, subject: '$JOB_NAME || SCM Checkout || $BUILD_STATUS || $BUILD_ID', to: 'Arjun.Singh@in2ittech.com,vikas.kumar@in2ittech.com,shashank.gupta@in2ittech.com,Lokesh.Sharma@in2ittech.com,neeraj.kumar@in2ittech.com,ajay.kumar@in2ittech.com,vishal.mishra@in2ittech.com,abhijeet.singh@in2ittech.com,vasu.garg@in2ittech.com'
+	       }
+	     }
+		}
+
+    
+    
+	stage ('Maven Build'){
+		steps {
+
+		    sh ' mvn clean package '
+		  }
+		  post {
+			failure {
+				emailext attachLog: true, body: '''Hi Team,Please find the status of stage "Maven Build" of project "$JOB_NAME" = $BUILD_STATUS ''', compressLog: false, subject: '$JOB_NAME || Maven Build || $BUILD_STATUS || $BUILD_ID', to: 'Arjun.Singh@in2ittech.com,vikas.kumar@in2ittech.com,shashank.gupta@in2ittech.com,Lokesh.Sharma@in2ittech.com,neeraj.kumar@in2ittech.com,ajay.kumar@in2ittech.com,vishal.mishra@in2ittech.com,abhijeet.singh@in2ittech.com,vasu.garg@in2ittech.com'
+	       }
+	     }
+		}
+		
+
+    stage ('Sonar Analysis'){
+		steps {
+		  withSonarQubeEnv('sonar-server') {
+				sh ' mvn sonar:sonar '
+			}
+		  }
+		  post {
+			failure {
+				emailext attachLog: true, body: '''Hi Team,Please find the status of stage "Sonar Analysis" of project "$JOB_NAME" = $BUILD_STATUS ''', compressLog: false, subject: '$JOB_NAME || Sonar Analysis || $BUILD_STATUS || $BUILD_ID', to: 'Arjun.Singh@in2ittech.com,vikas.kumar@in2ittech.com,shashank.gupta@in2ittech.com,Lokesh.Sharma@in2ittech.com,neeraj.kumar@in2ittech.com,ajay.kumar@in2ittech.com,vishal.mishra@in2ittech.com,abhijeet.singh@in2ittech.com,vasu.garg@in2ittech.com'
+	       }
+	     }
+		}	
+
+	stage ('Docker Image Build'){
+		steps {
+		  sh "docker build -t alphacodesvikas/acl_core_testable_backend:${tag} -f ./docker/Dockerfile ."
+		  } 
+		  post {
+			failure {
+				emailext attachLog: true, body: '''Hi Team,Please find the status of stage "Docker image Build" of project "$JOB_NAME" = $BUILD_STATUS ''', compressLog: false, subject: '$JOB_NAME || Docker Image Build || $BUILD_STATUS || $BUILD_ID', to: 'Arjun.Singh@in2ittech.com,vikas.kumar@in2ittech.com,shashank.gupta@in2ittech.com,Lokesh.Sharma@in2ittech.com,neeraj.kumar@in2ittech.com,ajay.kumar@in2ittech.com,vishal.mishra@in2ittech.com,abhijeet.singh@in2ittech.com,vasu.garg@in2ittech.com'
+	       }
+	     }
+		}
+
+	stage ('Docker Image Push'){
+		steps {
+			withCredentials([string(credentialsId: 'docker-pwd', variable: 'dockerHubPwd')]) {
+				sh "docker login -u alphacodesvikas -p ${dockerHubPwd}"
+				sh " docker push alphacodesvikas/acl_core_testable_backend:${tag} "
+				sh " docker rmi alphacodesvikas/acl_core_testable_backend:${tag} || true "				
+				}
+		  }
+		  post {
+			failure {
+				emailext attachLog: true, body: '''Hi Team,Please find the status of stage "Docker Image Push" of project "$JOB_NAME" = $BUILD_STATUS ''', compressLog: false, subject: '$JOB_NAME || Docker Image Push || $BUILD_STATUS || $BUILD_ID', to: 'Arjun.Singh@in2ittech.com,vikas.kumar@in2ittech.com,shashank.gupta@in2ittech.com,Lokesh.Sharma@in2ittech.com,neeraj.kumar@in2ittech.com,ajay.kumar@in2ittech.com,vishal.mishra@in2ittech.com,abhijeet.singh@in2ittech.com,vasu.garg@in2ittech.com'
+	       }
+	     }
+		}
+	stage ('Deployment approval'){
+        steps {
+            input(message: "Approve Deploy", ok: "Yes")
+        }
+    }
+// 	stage ('App Deployment'){
+// 		 environment {
+			
+// 			def dockerDel = 'docker rm -f acl_core-testable-backend || true'
+// 			def dockerRun = "docker run -d --name acl_core-testable-backend  -p 8764:8762 -e DB_IP=10.0.1.108 -e DB_PORT=5432 -e DB_NAME=acl_core_testable -e DB_USER=postgres -e DB_PASS=postgres -e EUREKA_URL=10.0.1.104:8772 -e ACL_CORE_TENANT_URL=10.0.1.104:8765 -e ACL_CORE_LOGIN_URL=10.0.1.104:8084 -e ACL_CORE_BASE_URL=10.0.1.104:8084 -e SENTINEL_USER=false -e REDIS_HOST=10.0.1.104 -e SMTP_ENABLE=true -e SMTP_TIMEOUT=25000 -e SMTP_AUTH=true -e SMTP_CONNECTION_TIMEOUT=25000 -e SMTP_WRITE_TIMEOUT=25000 -e MAIL_HOST=smtpout.secureserver.net -e MAIL_USERNAME=info@cats4u.ai -e MAIL_PASSWORD=!Admin@2023! -e IPROVISION_CLIENT_URL=10.0.1.104:8780  alphacodesvikas/acl_core_testable_backend:${tag}"
+// 			def dockerPort = "docker ps -f name=acl_core-testable-backend "
+// 		 }
+// 		steps {
+// 		  sshagent(['dev-server-10.0.1.104']) {
+		    
+// 			sh "ssh -o StrictHostKeyChecking=no root@10.0.1.104 ${dockerDel}"
+// 			sh "ssh -o StrictHostKeyChecking=no root@10.0.1.104 ${dockerRun} "		
+// 			sh "ssh -o StrictHostKeyChecking=no root@10.0.1.104 ${dockerPort} "
+			
+// 			}
+// 		  }
+// 		  post {
+// 			always {
+// 				emailext attachLog: true, body: '''Hi Team,Please find the status of stage "App Deployment" of project "$JOB_NAME" = $BUILD_STATUS ''', compressLog: false, subject: '$JOB_NAME || App Deployment || $BUILD_STATUS || $BUILD_ID', to: 'Arjun.Singh@in2ittech.com,vikas.kumar@in2ittech.com,shashank.gupta@in2ittech.com,Lokesh.Sharma@in2ittech.com,neeraj.kumar@in2ittech.com,ajay.kumar@in2ittech.com,vishal.mishra@in2ittech.com,abhijeet.singh@in2ittech.com,vasu.garg@in2ittech.com'
+// 	       }
+// 	     }
+//  		}
+	}
+}
